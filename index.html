@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tino's Portal</title>
+    <style>
+        body { margin: 0; }
+        canvas { display: block; }
+    </style>
+</head>
+<body>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.7.7/dat.gui.min.js"></script>
+    <script>
+// Set up the scene, camera, and renderer
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer();
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+// Add ambient light
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+scene.add(ambientLight);
+
+// Add directional light
+const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+directionalLight.position.set(0, 10, 0);
+scene.add(directionalLight);
+
+// Create a floor
+const floorGeometry = new THREE.PlaneGeometry(20, 20);
+const floorMaterial = new THREE.MeshPhongMaterial({ color: 0x999999, side: THREE.DoubleSide });
+const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+floor.rotation.x = Math.PI / 2;
+scene.add(floor);
+
+// Define portal properties
+const portalProperties = [
+    { color: 0xFF0000, url: 'https://www.youtube.com', name: 'YouTube' },
+    { color: 0x00FF00, url: 'https://www.google.com', name: 'Google' },
+    { color: 0x0000FF, url: 'https://www.spotify.com', name: 'Spotify' },
+    { color: 0xFFFF00, url: 'https://www.instagram.com', name: 'Instagram' },
+    { color: 0xFF00FF, url: 'https://www.discord.com', name: 'Discord' }
+];
+
+// Create portals and text
+const portals = [];
+const textMeshes = [];
+
+portalProperties.forEach((prop, index) => {
+    // Create portal
+    const portalShape = new THREE.Shape();
+    portalShape.ellipse(0, 0, 0.75, 1.5, 0, 2 * Math.PI);
+    const portalGeometry = new THREE.ShapeGeometry(portalShape);
+    const portalMaterial = new THREE.MeshPhongMaterial({ 
+        color: prop.color, 
+        emissive: prop.color, 
+        emissiveIntensity: 0.5,
+        side: THREE.DoubleSide
+    });
+    const portal = new THREE.Mesh(portalGeometry, portalMaterial);
+    portal.position.set(
+        Math.cos(index * Math.PI * 0.4) * 7,
+        1.5,
+        Math.sin(index * Math.PI * 0.4) * 7
+    );
+    portal.userData.url = prop.url;
+    scene.add(portal);
+    portals.push(portal);
+
+    // Create text (we'll update the geometry when the font is loaded)
+    const textMaterial = new THREE.MeshPhongMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.5 });
+    const textMesh = new THREE.Mesh(new THREE.BufferGeometry(), textMaterial);
+    textMesh.position.set(portal.position.x, portal.position.y + 2, portal.position.z);
+    scene.add(textMesh);
+    textMeshes.push(textMesh);
+});
+
+// Set up camera position in the center
+camera.position.set(0, 1.6, 0); // Eye level
+
+// Movement variables
+const moveSpeed = 0.1;
+const jumpSpeed = 0.1;
+let isJumping = false;
+let velocity = 0;
+const gravity = -0.005;
+
+// Mouse look variables
+let mouseSensitivity = 0.002;
+let mouseX = 0;
+let mouseY = 0;
+
+// Keyboard state
+const keyboard = {};
+
+// Event listeners for keyboard input
+document.addEventListener('keydown', (event) => {
+    keyboard[event.code] = true;
+});
+
+document.addEventListener('keyup', (event) => {
+    keyboard[event.code] = false;
+});
+
+// Mouse movement event listener
+function onMouseMove(event) {
+    if (document.pointerLockElement === renderer.domElement) {
+        mouseX -= event.movementX * mouseSensitivity;
+        mouseY -= event.movementY * mouseSensitivity;
+
+        // Clamp vertical rotation to prevent over-rotation
+        mouseY = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, mouseY));
+
+        camera.rotation.order = 'YXZ';
+        camera.rotation.x = mouseY;
+        camera.rotation.y = mouseX;
+    }
+}
+
+document.addEventListener('mousemove', onMouseMove);
+
+// Lock mouse pointer
+renderer.domElement.addEventListener('click', () => {
+    renderer.domElement.requestPointerLock();
+});
+
+// Pointer lock change event listener
+document.addEventListener('pointerlockchange', () => {
+    if (document.pointerLockElement === renderer.domElement) {
+        console.log("Pointer locked");
+    } else {
+        console.log("Pointer unlocked");
+    }
+});
+
+// Movement functions
+function isMovingForward() {
+    return keyboard['KeyW'] || keyboard['ArrowUp'];
+}
+
+function isMovingBackward() {
+    return keyboard['KeyS'] || keyboard['ArrowDown'];
+}
+
+function isMovingLeft() {
+    return keyboard['KeyA'] || keyboard['ArrowLeft'];
+}
+
+function isMovingRight() {
+    return keyboard['KeyD'] || keyboard['ArrowRight'];
+}
+
+// Collision detection function
+function checkCollision(position, portals) {
+    for (let portal of portals) {
+        const distance = position.distanceTo(portal.position);
+        if (distance < 1.5) {  // Adjusted for elliptical shape
+            return portal;
+        }
+    }
+    return null;
+}
+
+// Load font
+const loader = new THREE.FontLoader();
+loader.load('https://threejs.org/examples/fonts/helvetiker_regular.typeface.json', function(font) {
+    // Update text geometries with loaded font
+    textMeshes.forEach((textMesh, index) => {
+        const newGeometry = new THREE.TextGeometry(portalProperties[index].name, {
+            font: font,
+            size: 0.5,
+            height: 0.1,
+        });
+        textMesh.geometry = newGeometry;
+        textMesh.geometry.center(); // Center the text geometry
+    });
+
+    // Animation loop
+    function animate() {
+        requestAnimationFrame(animate);
+
+        // Handle movement
+        const direction = new THREE.Vector3();
+        const rotation = camera.rotation.clone();
+        rotation.x = 0; // Remove pitch to keep movement horizontal
+        if (isMovingForward()) direction.z -= 1;
+        if (isMovingBackward()) direction.z += 1;
+        if (isMovingLeft()) direction.x -= 1;
+        if (isMovingRight()) direction.x += 1;
+        direction.applyEuler(rotation);
+        direction.normalize();
+        
+        const newPosition = camera.position.clone().addScaledVector(direction, moveSpeed);
+        
+        // Check for collision before moving
+        const collidedPortal = checkCollision(newPosition, portals);
+        if (!collidedPortal) {
+            camera.position.copy(newPosition);
+        } else {
+            // Collision detected, redirect to the portal's assigned website
+            window.location.href = collidedPortal.userData.url;
+        }
+
+        // Handle jumping
+        if ((keyboard['Space'] || keyboard['ArrowUp']) && !isJumping) {
+            isJumping = true;
+            velocity = jumpSpeed;
+        }
+
+        if (isJumping) {
+            camera.position.y += velocity;
+            velocity += gravity;
+
+            if (camera.position.y <= 1.6) {
+                camera.position.y = 1.6;
+                isJumping = false;
+            }
+        }
+
+        // Make portals and text always face the camera
+        portals.forEach((portal, index) => {
+            portal.lookAt(camera.position);
+            textMeshes[index].lookAt(camera.position);
+        });
+
+        renderer.render(scene, camera);
+    }
+
+    animate();
+});
+
+// Handle window resizing
+window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>
